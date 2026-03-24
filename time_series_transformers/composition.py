@@ -1,4 +1,5 @@
 import pandas as pd
+
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
@@ -36,8 +37,7 @@ class InvertiblePipeline(BaseEstimator, TransformerMixin):
         for name, step in reversed(self.fitted_steps_):
             if not hasattr(step, "inverse_transform"):
                 raise TypeError(
-                    f"Step {name!r} ({type(step).__name__}) "
-                    f"does not support inverse_transform."
+                    f"Step {name!r} ({type(step).__name__}) does not support inverse_transform."
                 )
             Xt = step.inverse_transform(Xt, y)
         return Xt
@@ -87,4 +87,3 @@ class DataFrameFeatureUnion(BaseEstimator, TransformerMixin):
         for _, cols, _ in self.fitted_:
             seen.extend(cols)
         return seen
-

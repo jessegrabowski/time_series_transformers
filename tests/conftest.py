@@ -10,10 +10,12 @@ def rng():
 
 @pytest.fixture
 def random_walk(rng):
-    return pd.DataFrame({
-        "a": np.cumsum(rng.standard_normal(50)),
-        "b": np.cumsum(rng.standard_normal(50)),
-    })
+    return pd.DataFrame(
+        {
+            "a": np.cumsum(rng.standard_normal(50)),
+            "b": np.cumsum(rng.standard_normal(50)),
+        }
+    )
 
 
 @pytest.fixture

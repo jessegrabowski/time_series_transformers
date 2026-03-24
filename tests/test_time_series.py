@@ -95,4 +95,3 @@ def test_hamilton_short_series_raises():
     short = pd.DataFrame({"x": [1.0, 2.0]})
     with pytest.raises(ValueError, match="too short"):
         HamiltonFilterTransformer(h=2, p=2).fit(short)
-

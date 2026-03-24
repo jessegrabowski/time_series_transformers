@@ -1,0 +1,82 @@
+[build-system]
+requires = ["hatchling", "hatch-vcs"]
+build-backend = "hatchling.build"
+
+[project]
+name = "time-series-transformers"
+dynamic = ["version"]
+requires-python = ">=3.12"
+authors = [{ name = "Jesse Grabowski", email = "jessegrabowski@gmail.com" }]
+description = "sklearn transformers for working with time series data"
+readme = "README.md"
+license = { file = "LICENSE" }
+dependencies = [
+    "numpy",
+    "pandas>=3.0",
+    "scikit-learn",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "pytest",
+]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "time_series_transformers/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["time_series_transformers"]
+
+[tool.pytest.ini_options]
+xfail_strict = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+    "B",
+    "C4",
+    "D",
+    "E", "F", "W",
+    "I",
+    "NPY",
+    "PERF",
+    "PL",
+    "RUF",
+    "SIM",
+    "T10",
+    "T20",
+    "TID",
+    "TRY",
+    "UP",
+]
+ignore = [
+    "D100", "D101", "D102", "D103", "D104", "D105", "D107",
+    "PLR2004",
+    "RUF001",
+    "RUF002",
+    "TRY003",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+lines-between-types = 1
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = [
+    "PLR2004",
+]

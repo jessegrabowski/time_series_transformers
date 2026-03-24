@@ -11,4 +11,3 @@ def to_dataframe(X: pd.DataFrame | pd.Series) -> pd.DataFrame:
     if isinstance(X, pd.DataFrame):
         return X.copy()
     raise TypeError(f"Expected DataFrame or Series, got {type(X).__name__}.")
-

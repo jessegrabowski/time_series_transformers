@@ -1,4 +1,5 @@
 import numpy as np
+
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
@@ -81,4 +82,3 @@ class PandasMinMaxScaler(BaseEstimator, TransformerMixin):
     def inverse_transform(self, X, y=None):
         check_is_fitted(self)
         return (self.max_ - self.min_) * to_dataframe(X) + self.min_
-

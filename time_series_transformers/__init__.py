@@ -1,3 +1,7 @@
+from time_series_transformers.composition import (
+    DataFrameFeatureUnion,
+    InvertiblePipeline,
+)
 from time_series_transformers.scalers import (
     LogTransformer,
     PandasMinMaxScaler,
@@ -7,10 +11,6 @@ from time_series_transformers.time_series import (
     DetrendTransformer,
     DifferenceTransformer,
     HamiltonFilterTransformer,
-)
-from time_series_transformers.composition import (
-    DataFrameFeatureUnion,
-    InvertiblePipeline,
 )
 
 __all__ = [

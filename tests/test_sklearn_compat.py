@@ -1,5 +1,6 @@
 import pandas as pd
 import pytest
+
 from sklearn.base import clone
 from sklearn.exceptions import NotFittedError
 
@@ -48,4 +49,3 @@ def test_transform_does_not_mutate_input(random_walk):
     original = random_walk.copy()
     DetrendTransformer(trend="ct").fit(random_walk).transform(random_walk)
     pd.testing.assert_frame_equal(random_walk, original)
-

@@ -1,15 +1,16 @@
 import numpy as np
 import pandas as pd
+
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
 from time_series_transformers._utils import to_dataframe
 
 _TREND_COMPONENTS: dict[str, tuple[bool, bool, bool]] = {
-    "c":   (True,  False, False),
-    "t":   (False, True,  False),
-    "ct":  (True,  True,  False),
-    "ctt": (True,  True,  True),
+    "c": (True, False, False),
+    "t": (False, True, False),
+    "ct": (True, True, False),
+    "ctt": (True, True, True),
 }
 
 
@@ -86,8 +87,7 @@ class DetrendTransformer(BaseEstimator, TransformerMixin):
             has_const, has_linear, has_quad = _TREND_COMPONENTS[self.trend]
         except KeyError:
             raise ValueError(
-                f"Invalid trend {self.trend!r}. "
-                f"Choose from {list(_TREND_COMPONENTS)}."
+                f"Invalid trend {self.trend!r}. Choose from {list(_TREND_COMPONENTS)}."
             ) from None
 
         t = np.arange(n_obs, dtype=float)
@@ -137,7 +137,7 @@ class HamiltonFilterTransformer(BaseEstimator, TransformerMixin):
 
         for col in X.columns:
             s = X[col].astype(float)
-            cycle, trend, beta = self._fit_one(s)
+            _cycle, trend, beta = self._fit_one(s)
             self.models_[col] = beta
             if self.store_trend:
                 self.trends_[col] = trend
@@ -171,9 +171,7 @@ class HamiltonFilterTransformer(BaseEstimator, TransformerMixin):
             raise ValueError(f"Series too short ({n} obs) for h={h}, p={p}.")
         t_idx = np.arange(p - 1, n - h)
         y = vals[t_idx + h]
-        X = np.column_stack(
-            [np.ones(len(t_idx))] + [vals[t_idx - j] for j in range(p)]
-        )
+        X = np.column_stack([np.ones(len(t_idx))] + [vals[t_idx - j] for j in range(p)])
         return t_idx, y, X
 
     def _fit_one(self, s: pd.Series) -> tuple[pd.Series, pd.Series, np.ndarray]:
@@ -212,4 +210,3 @@ class HamiltonFilterTransformer(BaseEstimator, TransformerMixin):
         out = pd.Series(np.nan, index=s.index, dtype=float)
         out.iloc[idx] = cycle
         return out
-
