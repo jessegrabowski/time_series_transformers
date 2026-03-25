@@ -1,6 +1,6 @@
 import pandas as pd
 
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.utils.validation import check_is_fitted
 
 
@@ -18,10 +18,10 @@ class InvertiblePipeline(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         Xt = X.copy()
         self.fitted_steps_: list[tuple[str, BaseEstimator]] = []
-        for name, step in self.steps:
-            fitted = step.fit(Xt, y)
-            Xt = fitted.transform(Xt, y)
-            self.fitted_steps_.append((name, fitted))
+        for name, outer_step in self.steps:
+            step = clone(outer_step)
+            Xt = step.fit(Xt, y).transform(Xt, y)
+            self.fitted_steps_.append((name, step))
         return self
 
     def transform(self, X, y=None):
@@ -58,7 +58,7 @@ class DataFrameFeatureUnion(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None):
         self.fitted_: list[tuple[str, list[str], BaseEstimator]] = []
         for name, cols, transformer in self.transformers:
-            fitted = transformer.fit(X[cols], y)
+            fitted = clone(transformer).fit(X[cols], y)
             self.fitted_.append((name, cols, fitted))
         return self
 

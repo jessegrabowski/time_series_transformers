@@ -1,6 +1,8 @@
 import pandas as pd
 import pytest
 
+from sklearn.base import BaseEstimator
+
 from time_series_transformers import (
     DataFrameFeatureUnion,
     DifferenceTransformer,
@@ -33,12 +35,12 @@ def test_pipeline_applies_steps_in_declared_order():
     )
     pipe.fit(data)
     result = pipe.transform(data)
-    # diff produces NaN in row 0; if order were wrong this would not survive scaling
+    # If order were wrong, the NaN from diff would not survive scaling
     assert result.iloc[0].isna().all()
 
 
 def test_pipeline_non_invertible_step_raises(random_walk):
-    class ForwardOnly:
+    class ForwardOnly(BaseEstimator):
         def fit(self, X, y=None):
             return self
 
@@ -82,3 +84,17 @@ def test_feature_union_preserves_declaration_order(random_walk):
     union.fit(random_walk)
     result = union.transform(random_walk)
     assert list(result.columns) == ["b", "a"]
+
+
+def test_feature_union_clones_shared_pipelines(random_walk):
+    shared = PandasStandardScaler()
+    union = DataFrameFeatureUnion(
+        [
+            ("first", ["a"], shared),
+            ("second", ["b"], shared),
+        ]
+    )
+    union.fit(random_walk)
+    result = union.transform(random_walk)
+    assert list(result.columns) == ["a", "b"]
+    assert result.notna().all().all()

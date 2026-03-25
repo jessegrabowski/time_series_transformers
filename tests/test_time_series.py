@@ -15,7 +15,7 @@ def test_difference_roundtrip(random_walk):
     pd.testing.assert_frame_equal(result, random_walk, atol=1e-12)
 
 
-def test_difference_values():
+def test_difference_known_values():
     data = pd.DataFrame({"x": [10.0, 13.0, 11.0]})
     result = DifferenceTransformer().fit(data).transform(data)
     np.testing.assert_allclose(result["x"].values[1:], [3.0, -2.0])

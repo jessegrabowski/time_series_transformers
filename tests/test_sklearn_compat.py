@@ -45,7 +45,8 @@ def test_unfitted_transform_raises(transformer, random_walk):
         transformer.transform(random_walk)
 
 
-def test_transform_does_not_mutate_input(random_walk):
-    original = random_walk.copy()
-    DetrendTransformer(trend="ct").fit(random_walk).transform(random_walk)
-    pd.testing.assert_frame_equal(random_walk, original)
+@pytest.mark.parametrize("transformer", STATEFUL_TRANSFORMERS, ids=repr)
+def test_transform_does_not_mutate_input(positive_random_walk, transformer):
+    original = positive_random_walk.copy()
+    transformer.fit(positive_random_walk).transform(positive_random_walk)
+    pd.testing.assert_frame_equal(positive_random_walk, original)
