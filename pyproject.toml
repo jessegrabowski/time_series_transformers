@@ -44,6 +44,7 @@ dependencies = [
 dev = [
     "pre-commit",
     "pytest",
+    "pytest-cov",
     "mypy",
     "polars",
 ]
@@ -148,5 +149,6 @@ py313 = ["py313", "dev"]
 
 [tool.pixi.tasks]
 test = "pytest -v"
+test-cov = "pytest -v --cov=time_series_transformers --cov-report=xml --cov-report=term-missing --no-cov-on-fail"
 mypy = "python scripts/run_mypy.py"
 pre-commit = "pre-commit run --all-files"
