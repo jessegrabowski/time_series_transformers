@@ -15,26 +15,48 @@ _TREND_COMPONENTS: dict[str, tuple[bool, bool, bool]] = {
 
 
 class DifferenceTransformer(BaseEstimator, TransformerMixin):
-    """First-difference transformer with cumulative-sum inverse.
+    r"""Periodic-difference transformer with cumulative-sum inverse.
 
-    Stores the first row during :meth:`fit` so that :meth:`inverse_transform`
-    can recover levels via ``cumsum``.
+    Computes :math:`x_t - x_{t - d}` where :math:`d` is ``periods``. Stores the
+    first ``periods`` rows during :meth:`fit` so that :meth:`inverse_transform`
+    can recover levels by cumulatively summing within each stride
+    :math:`t \\bmod d`.
+
+    Parameters
+    ----------
+    periods : int, optional
+        Lookback length of the difference. Use ``periods=1`` for ordinary
+        first differences and, e.g., ``periods=4`` for annual differences of
+        quarterly data. Default 1.
     """
 
+    def __init__(self, periods: int = 1) -> None:
+        self.periods = periods
+
     def fit(self, X, y=None):
+        if self.periods < 1:
+            raise ValueError(f"periods must be >= 1, got {self.periods}.")
         X = to_dataframe(X)
-        self.initial_values_ = X.iloc[[0]].copy()
+        if X.shape[0] < self.periods:
+            raise ValueError(
+                f"Need at least periods={self.periods} observations to fit, got {X.shape[0]}."
+            )
+        self.initial_values_ = X.iloc[: self.periods].copy()
         return self
 
     def transform(self, X, y=None):
         check_is_fitted(self)
-        return to_dataframe(X).diff()
+        return to_dataframe(X).diff(periods=self.periods)
 
     def inverse_transform(self, X, y=None):
         check_is_fitted(self)
         out = to_dataframe(X)
-        out.iloc[0] = out.iloc[0].fillna(self.initial_values_.iloc[0])
-        return out.cumsum()
+        p = self.periods
+        n_seed = min(p, out.shape[0])
+        for i in range(n_seed):
+            out.iloc[i] = out.iloc[i].fillna(self.initial_values_.iloc[i])
+        groups = np.arange(out.shape[0]) % p
+        return out.groupby(groups).cumsum()
 
 
 class DetrendTransformer(BaseEstimator, TransformerMixin):
