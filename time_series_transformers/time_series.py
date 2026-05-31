@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 
+from scipy.linalg import lstsq, solveh_banded
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.utils.validation import check_is_fitted
 
@@ -60,7 +61,7 @@ class DetrendTransformer(BaseEstimator, TransformerMixin):
         for col in X.columns:
             x = X[col].to_numpy(dtype=float)
             mask = np.isfinite(x)
-            beta = np.linalg.lstsq(F[mask], x[mask], rcond=None)[0]
+            beta = lstsq(F[mask], x[mask])[0]
             betas.append(beta)
 
         self.params_ = np.column_stack(betas)
@@ -181,7 +182,7 @@ class HamiltonFilterTransformer(BaseEstimator, TransformerMixin):
         clean = vals[mask]
 
         t_idx, y, X = self._lagged_design(clean)
-        beta = np.linalg.lstsq(X, y, rcond=None)[0]
+        beta = lstsq(X, y)[0]
 
         trend = np.full(len(clean), np.nan)
         trend[t_idx + self.h] = X @ beta
@@ -210,3 +211,106 @@ class HamiltonFilterTransformer(BaseEstimator, TransformerMixin):
         out = pd.Series(np.nan, index=s.index, dtype=float)
         out.iloc[idx] = cycle
         return out
+
+
+class HPFilterDetrend(BaseEstimator, TransformerMixin):
+    r"""Hodrick–Prescott filter for trend–cycle decomposition.
+
+    Decomposes each column into a smooth *trend* and a *cycle* (the residual)
+    by solving the penalized least-squares problem
+
+    .. math::
+
+        \min_{\tau} \sum_t (y_t - \tau_t)^2
+        + \lambda \sum_t \big[(\tau_{t+1} - \tau_t) - (\tau_t - \tau_{t-1})\big]^2,
+
+    where :math:`\lambda` penalizes curvature of the trend. :meth:`transform`
+    returns the cycle :math:`y_t - \tau_t`; :meth:`inverse_transform` adds the
+    trend stored during :meth:`fit` back to recover levels.
+
+    Parameters
+    ----------
+    lamb : float, optional
+        Smoothing parameter :math:`\lambda`. Larger values yield a smoother
+        trend. Common choices are 1600 for quarterly data, 129600 for monthly
+        data, and 6.25 for annual data. Default 1600.
+    store_trend : bool, optional
+        Whether to store the fitted trend. Required for
+        :meth:`inverse_transform`. Default True.
+
+    Notes
+    -----
+    :meth:`inverse_transform` can only recover levels when ``store_trend`` is
+    ``True`` and the index matches the data used in :meth:`fit`.
+    """
+
+    def __init__(self, lamb: float = 1600.0, store_trend: bool = True) -> None:
+        self.lamb = lamb
+        self.store_trend = store_trend
+
+    def fit(self, X, y=None):
+        if self.lamb <= 0:
+            raise ValueError(f"lamb must be positive, got {self.lamb}.")
+        X = to_dataframe(X)
+        self.columns_ = X.columns
+        self.trends_: dict[str, pd.Series] = {}
+        for col in X.columns:
+            trend = self._trend(X[col].astype(float))
+            if self.store_trend:
+                self.trends_[col] = trend
+        return self
+
+    def transform(self, X, y=None):
+        check_is_fitted(self)
+        X = to_dataframe(X)
+        out = pd.DataFrame(index=X.index, columns=X.columns, dtype=float)
+        for col in X.columns:
+            s = X[col].astype(float)
+            out[col] = s - self._trend(s)
+        return out
+
+    def inverse_transform(self, X, y=None):
+        check_is_fitted(self)
+        if not self.store_trend:
+            raise ValueError("inverse_transform requires store_trend=True.")
+        X = to_dataframe(X)
+        out = pd.DataFrame(index=X.index, columns=X.columns, dtype=float)
+        for col in X.columns:
+            trend = self.trends_[col].reindex(X.index)
+            out[col] = X[col].astype(float) + trend
+        return out
+
+    def _trend(self, s: pd.Series) -> pd.Series:
+        """Solve the HP problem for the trend of *s*, leaving NaN positions untouched."""
+        vals = s.to_numpy(dtype=float)
+        mask = np.isfinite(vals)
+        idx = np.where(mask)[0]
+        clean = vals[mask]
+
+        n = len(clean)
+        if n < 3:
+            raise ValueError(f"Series too short ({n} obs); HP filter needs >= 3.")
+        trend = solveh_banded(self._banded_lhs(n), clean)
+
+        out = pd.Series(np.nan, index=s.index, dtype=float)
+        out.iloc[idx] = trend
+        return out
+
+    def _banded_lhs(self, n: int) -> np.ndarray:
+        """Upper-banded storage of ``I + lamb * D2.T @ D2`` for :func:`solveh_banded`.
+
+        ``D2`` is the ``(n - 2, n)`` second-difference operator, so the system
+        matrix is symmetric, positive definite, and pentadiagonal; only the main
+        diagonal and the two superdiagonals are built.
+        """
+        lamb = self.lamb
+        i = np.arange(n)
+        diag = (i <= n - 3) + 4.0 * ((i >= 1) & (i <= n - 2)) + (i >= 2)
+        j = np.arange(n - 1)
+        super1 = -2.0 * (j <= n - 3) - 2.0 * (j >= 1)
+
+        ab = np.zeros((3, n))
+        ab[0, 2:] = lamb
+        ab[1, 1:] = lamb * super1
+        ab[2, :] = 1.0 + lamb * diag
+        return ab

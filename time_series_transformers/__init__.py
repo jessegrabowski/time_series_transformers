@@ -11,12 +11,14 @@ from time_series_transformers.time_series import (
     DetrendTransformer,
     DifferenceTransformer,
     HamiltonFilterTransformer,
+    HPFilterDetrend,
 )
 
 __all__ = [
     "DataFrameFeatureUnion",
     "DetrendTransformer",
     "DifferenceTransformer",
+    "HPFilterDetrend",
     "HamiltonFilterTransformer",
     "InvertiblePipeline",
     "LogTransformer",
