@@ -65,6 +65,7 @@ packages = ["time_series_transformers"]
 
 [tool.pytest.ini_options]
 xfail_strict = true
+pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
@@ -132,9 +133,6 @@ numpy = "*"
 pandas = ">=3.0"
 scipy = "*"
 scikit-learn = "*"
-
-[tool.pixi.pypi-dependencies]
-time-series-transformers = { path = ".", editable = true }
 
 [tool.pixi.feature.py312.dependencies]
 python = "3.12.*"
