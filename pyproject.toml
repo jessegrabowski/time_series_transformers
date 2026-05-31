@@ -9,7 +9,31 @@ requires-python = ">=3.12"
 authors = [{ name = "Jesse Grabowski", email = "jessegrabowski@gmail.com" }]
 description = "sklearn transformers for working with time series data"
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = [
+    "time-series",
+    "scikit-learn",
+    "sklearn",
+    "transformers",
+    "preprocessing",
+    "feature-engineering",
+    "pandas",
+    "detrending",
+    "hamilton-filter",
+    "hp-filter",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
 dependencies = [
     "numpy",
     "pandas>=3.0",
@@ -21,6 +45,11 @@ dev = [
     "pre-commit",
     "pytest",
 ]
+
+[project.urls]
+Homepage = "https://github.com/jessegrabowski/time_series_transformers"
+Repository = "https://github.com/jessegrabowski/time_series_transformers"
+Issues = "https://github.com/jessegrabowski/time_series_transformers/issues"
 
 [tool.hatch.version]
 source = "vcs"
