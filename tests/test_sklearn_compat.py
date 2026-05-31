@@ -8,6 +8,7 @@ from time_series_transformers import (
     DetrendTransformer,
     DifferenceTransformer,
     HamiltonFilterTransformer,
+    HPFilterDetrend,
     LogTransformer,
     PandasMinMaxScaler,
     PandasStandardScaler,
@@ -23,6 +24,8 @@ ALL_TRANSFORMERS = [
     DetrendTransformer(trend="ctt"),
     HamiltonFilterTransformer(),
     HamiltonFilterTransformer(h=4, p=3),
+    HPFilterDetrend(),
+    HPFilterDetrend(lamb=129600),
 ]
 
 STATEFUL_TRANSFORMERS = [
@@ -31,6 +34,7 @@ STATEFUL_TRANSFORMERS = [
     DifferenceTransformer(),
     DetrendTransformer(),
     HamiltonFilterTransformer(),
+    HPFilterDetrend(),
 ]
 
 

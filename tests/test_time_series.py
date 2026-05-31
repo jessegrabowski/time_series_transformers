@@ -6,6 +6,7 @@ from time_series_transformers import (
     DetrendTransformer,
     DifferenceTransformer,
     HamiltonFilterTransformer,
+    HPFilterDetrend,
 )
 
 
@@ -95,3 +96,67 @@ def test_hamilton_short_series_raises():
     short = pd.DataFrame({"x": [1.0, 2.0]})
     with pytest.raises(ValueError, match="too short"):
         HamiltonFilterTransformer(h=2, p=2).fit(short)
+
+
+def test_hp_filter_roundtrip(random_walk):
+    tf = HPFilterDetrend(lamb=1600).fit(random_walk)
+    recovered = tf.inverse_transform(tf.transform(random_walk))
+    pd.testing.assert_frame_equal(recovered, random_walk, atol=1e-8)
+
+
+@pytest.mark.parametrize("n", [3, 4, 5, 50])
+def test_hp_filter_matches_dense_solve(rng, n):
+    lamb = 1600.0
+    y = rng.standard_normal(n)
+    data = pd.DataFrame({"x": y})
+    cycle = HPFilterDetrend(lamb=lamb).fit(data).transform(data)
+    trend = y - cycle["x"].to_numpy()
+
+    second_diff = np.diff(np.eye(n), n=2, axis=0)
+    dense = np.eye(n) + lamb * (second_diff.T @ second_diff)
+    np.testing.assert_allclose(trend, np.linalg.solve(dense, y), atol=1e-8)
+
+
+def test_hp_filter_linear_series_has_zero_cycle():
+    t = np.arange(100, dtype=float)
+    data = pd.DataFrame({"x": 3.0 + 2.0 * t})
+    cycle = HPFilterDetrend(lamb=1600).fit(data).transform(data)
+    assert cycle["x"].abs().max() < 1e-6
+
+
+def test_hp_filter_larger_lamb_yields_smoother_trend(random_walk):
+    data = random_walk[["a"]]
+    cycle_rough = HPFilterDetrend(lamb=100).fit(data).transform(data)
+    cycle_smooth = HPFilterDetrend(lamb=1e7).fit(data).transform(data)
+    trend_rough = (data - cycle_rough)["a"].to_numpy()
+    trend_smooth = (data - cycle_smooth)["a"].to_numpy()
+    assert np.abs(np.diff(trend_smooth, 2)).sum() < np.abs(np.diff(trend_rough, 2)).sum()
+
+
+def test_hp_filter_inverse_without_store_trend_raises(random_walk):
+    tf = HPFilterDetrend(store_trend=False).fit(random_walk)
+    with pytest.raises(ValueError, match="store_trend"):
+        tf.inverse_transform(tf.transform(random_walk))
+
+
+@pytest.mark.parametrize("lamb", [-1, 0])
+def test_hp_filter_invalid_lamb_raises(random_walk, lamb):
+    with pytest.raises(ValueError, match="lamb must be positive"):
+        HPFilterDetrend(lamb=lamb).fit(random_walk)
+
+
+def test_hp_filter_short_series_raises():
+    short = pd.DataFrame({"x": [1.0, 2.0]})
+    with pytest.raises(ValueError, match="too short"):
+        HPFilterDetrend().fit(short)
+
+
+def test_hp_filter_nan_values_do_not_corrupt_finite_values(random_walk):
+    data = random_walk.copy()
+    data.iloc[5, 0] = np.nan
+    tf = HPFilterDetrend().fit(data)
+    recovered = tf.inverse_transform(tf.transform(data))
+    finite = data.notna()
+    np.testing.assert_allclose(
+        recovered.values[finite.values], data.values[finite.values], atol=1e-8
+    )
