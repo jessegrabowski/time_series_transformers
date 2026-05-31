@@ -20,6 +20,7 @@ ALL_TRANSFORMERS = [
     PandasStandardScaler(),
     PandasMinMaxScaler(),
     DifferenceTransformer(),
+    DifferenceTransformer(periods=4),
     DetrendTransformer(),
     DetrendTransformer(trend="ctt"),
     HamiltonFilterTransformer(),

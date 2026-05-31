@@ -22,6 +22,41 @@ def test_difference_known_values():
     np.testing.assert_allclose(result["x"].values[1:], [3.0, -2.0])
 
 
+@pytest.mark.parametrize("periods", [1, 2, 4, 12])
+def test_difference_periods_roundtrip(random_walk, periods):
+    tf = DifferenceTransformer(periods=periods).fit(random_walk)
+    result = tf.inverse_transform(tf.transform(random_walk))
+    pd.testing.assert_frame_equal(result, random_walk, atol=1e-10)
+
+
+def test_difference_periods_known_values():
+    data = pd.DataFrame({"x": [1.0, 2.0, 4.0, 7.0, 11.0, 16.0]})
+    result = DifferenceTransformer(periods=2).fit(data).transform(data)
+    assert result["x"].iloc[:2].isna().all()
+    np.testing.assert_allclose(result["x"].values[2:], [3.0, 5.0, 7.0, 9.0])
+
+
+def test_difference_periods_seasonal_known_values():
+    data = pd.DataFrame({"x": np.arange(8, dtype=float) + 10.0})
+    tf = DifferenceTransformer(periods=4).fit(data)
+    diffed = tf.transform(data)
+    assert diffed["x"].iloc[:4].isna().all()
+    np.testing.assert_allclose(diffed["x"].values[4:], 4.0)
+    recovered = tf.inverse_transform(diffed)
+    pd.testing.assert_frame_equal(recovered, data, atol=1e-12)
+
+
+def test_difference_invalid_periods_raises(random_walk):
+    with pytest.raises(ValueError, match="periods must be >= 1"):
+        DifferenceTransformer(periods=0).fit(random_walk)
+
+
+def test_difference_short_series_raises():
+    short = pd.DataFrame({"x": [1.0, 2.0, 3.0]})
+    with pytest.raises(ValueError, match="at least periods=4"):
+        DifferenceTransformer(periods=4).fit(short)
+
+
 @pytest.mark.parametrize("trend", ["c", "t", "ct", "ctt"])
 def test_detrend_roundtrip(random_walk, trend):
     tf = DetrendTransformer(trend=trend).fit(random_walk)
