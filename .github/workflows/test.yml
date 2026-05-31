@@ -1,0 +1,63 @@
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
+        with:
+          run-install: false
+      - name: Verify lockfile is up to date
+        run: pixi lock --check
+
+  pre-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
+        with:
+          environments: default
+          cache: true
+      - name: Run pre-commit hooks
+        run: pixi run pre-commit
+        env:
+          # This hook only makes sense locally; in CI the checkout sits on main.
+          SKIP: no-commit-to-branch
+
+  test:
+    needs: [check-lockfile, pre-commit]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [py312, py313]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
+        with:
+          environments: ${{ matrix.environment }}
+          cache: true
+      - name: Run tests with coverage
+        run: pixi run -e ${{ matrix.environment }} test-cov
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./coverage.xml
+          flags: ${{ matrix.environment }}
