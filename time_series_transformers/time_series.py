@@ -1,11 +1,9 @@
 import numpy as np
-import pandas as pd
 
 from scipy.linalg import lstsq, solveh_banded
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_is_fitted
 
-from time_series_transformers._utils import to_dataframe
+from time_series_transformers.base import TimeSeriesTransformer
+from time_series_transformers.date_axis import align_by_date
 
 _TREND_COMPONENTS: dict[str, tuple[bool, bool, bool]] = {
     "c": (True, False, False),
@@ -15,94 +13,78 @@ _TREND_COMPONENTS: dict[str, tuple[bool, bool, bool]] = {
 }
 
 
-class DifferenceTransformer(BaseEstimator, TransformerMixin):
-    r"""Periodic-difference transformer with cumulative-sum inverse.
-
-    Computes :math:`x_t - x_{t - d}` where :math:`d` is ``periods``. Stores the
-    first ``periods`` rows during :meth:`fit` so that :meth:`inverse_transform`
-    can recover levels by cumulatively summing within each stride
-    :math:`t \\bmod d`.
+class DifferenceTransformer(TimeSeriesTransformer):
+    r"""Periodic difference :math:`x_t - x_{t-d}` (``d = periods``), inverted by cumsum.
 
     Parameters
     ----------
     periods : int, optional
-        Lookback length of the difference. Use ``periods=1`` for ordinary
-        first differences and, e.g., ``periods=4`` for annual differences of
-        quarterly data. Default 1.
+        Difference lag — 1 for first differences, 4 for annual differences of quarterly
+        data. Default 1.
+    date_column : str, optional
+        Time axis, auto-detected when ``None``. Default None.
     """
 
-    def __init__(self, periods: int = 1) -> None:
+    def __init__(self, periods: int = 1, date_column: str | None = None) -> None:
         self.periods = periods
+        self.date_column = date_column
 
-    def fit(self, X, y=None):
+    def _fit_values(self, values: np.ndarray, dates: np.ndarray) -> None:
         if self.periods < 1:
             raise ValueError(f"periods must be >= 1, got {self.periods}.")
-        X = to_dataframe(X)
-        if X.shape[0] < self.periods:
+        if values.shape[0] < self.periods:
             raise ValueError(
-                f"Need at least periods={self.periods} observations to fit, got {X.shape[0]}."
+                f"Need at least periods={self.periods} observations to fit, got {values.shape[0]}."
             )
-        self.initial_values_ = X.iloc[: self.periods].copy()
-        return self
+        self.initial_values_ = values[: self.periods].copy()
 
-    def transform(self, X, y=None):
-        check_is_fitted(self)
-        return to_dataframe(X).diff(periods=self.periods)
-
-    def inverse_transform(self, X, y=None):
-        check_is_fitted(self)
-        out = to_dataframe(X)
+    def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
         p = self.periods
-        n_seed = min(p, out.shape[0])
-        for i in range(n_seed):
-            out.iloc[i] = out.iloc[i].fillna(self.initial_values_.iloc[i])
-        groups = np.arange(out.shape[0]) % p
-        return out.groupby(groups).cumsum()
+        out = np.full_like(values, np.nan)
+        out[p:] = values[p:] - values[:-p]
+        return out
+
+    def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        p = self.periods
+        out = values.copy()
+        block = out[: min(p, out.shape[0])]
+        nan_mask = np.isnan(block)
+        block[nan_mask] = self.initial_values_[: block.shape[0]][nan_mask]
+        for stride in range(p):
+            out[stride::p] = np.cumsum(out[stride::p], axis=0)
+        return out
 
 
-class DetrendTransformer(BaseEstimator, TransformerMixin):
+class DetrendTransformer(TimeSeriesTransformer):
     """Remove a deterministic trend via OLS.
 
     Parameters
     ----------
-    trend : ``{"c", "t", "ct", "ctt"}``, default ``"c"``
-        ``"c"`` — constant only,
-        ``"t"`` — linear trend,
-        ``"ct"`` — constant + linear,
-        ``"ctt"`` — constant + linear + quadratic.
+    trend : {"c", "t", "ct", "ctt"}, optional
+        ``"c"`` constant, ``"t"`` linear, ``"ct"`` constant + linear, ``"ctt"`` adds
+        quadratic. Default ``"c"``.
+    date_column : str, optional
+        Time axis, auto-detected when ``None``. Default None.
     """
 
-    def __init__(self, trend: str = "c") -> None:
+    def __init__(self, trend: str = "c", date_column: str | None = None) -> None:
         self.trend = trend
+        self.date_column = date_column
 
-    def fit(self, X, y=None):
-        X = to_dataframe(X)
-        F = self._feature_matrix(X.shape[0])
-
-        betas: list[np.ndarray] = []
-        for col in X.columns:
-            x = X[col].to_numpy(dtype=float)
+    def _fit_values(self, values: np.ndarray, dates: np.ndarray) -> None:
+        design = self._feature_matrix(values.shape[0])
+        betas = []
+        for column in range(values.shape[1]):
+            x = values[:, column]
             mask = np.isfinite(x)
-            beta = lstsq(F[mask], x[mask])[0]
-            betas.append(beta)
-
+            betas.append(lstsq(design[mask], x[mask])[0])  # pyright: ignore[reportOptionalSubscript]
         self.params_ = np.column_stack(betas)
-        self.columns_ = X.columns
-        return self
 
-    def transform(self, X, y=None):
-        check_is_fitted(self)
-        out = to_dataframe(X)
-        trend = self._feature_matrix(out.shape[0]) @ self.params_
-        out.loc[:, :] = out.to_numpy(dtype=float) - trend
-        return out
+    def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        return values - self._feature_matrix(values.shape[0]) @ self.params_
 
-    def inverse_transform(self, X, y=None):
-        check_is_fitted(self)
-        out = to_dataframe(X)
-        trend = self._feature_matrix(out.shape[0]) @ self.params_
-        out.loc[:, :] = out.to_numpy(dtype=float) + trend
-        return out
+    def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        return values + self._feature_matrix(values.shape[0]) @ self.params_
 
     def _feature_matrix(self, n_obs: int) -> np.ndarray:
         """Build the ``(n_obs, k)`` OLS design matrix for the chosen trend."""
@@ -124,67 +106,55 @@ class DetrendTransformer(BaseEstimator, TransformerMixin):
         return np.column_stack(parts)
 
 
-class HamiltonFilterTransformer(BaseEstimator, TransformerMixin):
-    """Hamilton (2018) regression filter for trend–cycle decomposition.
+class HamiltonFilterTransformer(TimeSeriesTransformer):
+    r"""Hamilton (2018) regression filter for trend–cycle decomposition.
 
-    Decomposes each column into a *trend* (fitted values of a regression of
-    ``y_{t+h}`` on ``y_t, y_{t-1}, …, y_{t-p+1}`` plus a constant) and a
-    *cycle* (the residual).
+    The trend is the fit of :math:`y_{t+h}` on :math:`y_t, \ldots, y_{t-p+1}` and a
+    constant; the cycle is the residual.
 
     Parameters
     ----------
-    h : int, default 2
-        Forecasting horizon.
-    p : int, default 1
-        Number of lags in the autoregression.
-    store_trend : bool, default True
-        Whether to store the fitted trend.  Required for
-        :meth:`inverse_transform`.
-
-    Notes
-    -----
-    :meth:`inverse_transform` can only recover levels when ``store_trend`` is
-    ``True`` **and** the index matches the data used in :meth:`fit`.
+    h : int, optional
+        Forecast horizon. Default 2.
+    p : int, optional
+        Autoregression lags. Default 1.
+    store_trend : bool, optional
+        Store the fitted trend; required for :meth:`inverse_transform`. Default True.
+    date_column : str, optional
+        Time axis, auto-detected when ``None``. Default None.
     """
 
-    def __init__(self, h: int = 2, p: int = 1, store_trend: bool = True) -> None:
+    def __init__(
+        self, h: int = 2, p: int = 1, store_trend: bool = True, date_column: str | None = None
+    ) -> None:
         self.h = h
         self.p = p
         self.store_trend = store_trend
+        self.date_column = date_column
 
-    def fit(self, X, y=None):
-        X = to_dataframe(X)
-        self.columns_ = X.columns
-        self.models_: dict[str, np.ndarray] = {}
-        self.trends_: dict[str, pd.Series] = {}
+    def _fit_values(self, values: np.ndarray, dates: np.ndarray) -> None:
+        self.betas_ = []
+        trends = []
+        for column in range(values.shape[1]):
+            trend, beta = self._fit_one(values[:, column])
+            self.betas_.append(beta)
+            trends.append(trend)
+        if self.store_trend:
+            self.trend_values_ = np.column_stack(trends)
+            self.trend_dates_ = dates
 
-        for col in X.columns:
-            s = X[col].astype(float)
-            _cycle, trend, beta = self._fit_one(s)
-            self.models_[col] = beta
-            if self.store_trend:
-                self.trends_[col] = trend
+    def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        return np.column_stack(
+            [
+                self._apply(values[:, column], self.betas_[column])
+                for column in range(values.shape[1])
+            ]
+        )
 
-        return self
-
-    def transform(self, X, y=None):
-        check_is_fitted(self)
-        X = to_dataframe(X)
-        out = pd.DataFrame(index=X.index, columns=X.columns, dtype=float)
-        for col in X.columns:
-            out[col] = self._apply(X[col].astype(float), self.models_[col])
-        return out
-
-    def inverse_transform(self, X, y=None):
-        check_is_fitted(self)
+    def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
         if not self.store_trend:
             raise ValueError("inverse_transform requires store_trend=True.")
-        X = to_dataframe(X)
-        out = pd.DataFrame(index=X.index, columns=X.columns, dtype=float)
-        for col in X.columns:
-            trend = self.trends_[col].reindex(X.index)
-            out[col] = X[col].astype(float) + trend
-        return out
+        return values + align_by_date(self.trend_dates_, self.trend_values_, dates)
 
     def _lagged_design(self, vals: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return ``(t_idx, y, X)`` for the Hamilton autoregression."""
@@ -197,114 +167,88 @@ class HamiltonFilterTransformer(BaseEstimator, TransformerMixin):
         X = np.column_stack([np.ones(len(t_idx))] + [vals[t_idx - j] for j in range(p)])
         return t_idx, y, X
 
-    def _fit_one(self, s: pd.Series) -> tuple[pd.Series, pd.Series, np.ndarray]:
-        vals = s.to_numpy(dtype=float)
+    def _fit_one(self, vals: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """Fit the regression on the finite entries of *vals*, returning ``(trend, beta)``."""
         mask = np.isfinite(vals)
         idx = np.where(mask)[0]
         clean = vals[mask]
 
         t_idx, y, X = self._lagged_design(clean)
-        beta = lstsq(X, y)[0]
+        beta = lstsq(X, y)[0]  # pyright: ignore[reportOptionalSubscript]
 
         trend = np.full(len(clean), np.nan)
         trend[t_idx + self.h] = X @ beta
-        cycle = clean - trend
 
-        trend_s = pd.Series(np.nan, index=s.index, dtype=float)
-        cycle_s = pd.Series(np.nan, index=s.index, dtype=float)
-        trend_s.iloc[idx] = trend
-        cycle_s.iloc[idx] = cycle
+        out = np.full(len(vals), np.nan)
+        out[idx] = trend
+        return out, beta
 
-        return cycle_s, trend_s, beta
-
-    def _apply(self, s: pd.Series, beta: np.ndarray) -> pd.Series:
-        """Compute the cycle component of *s* using pre-fitted *beta*."""
-        vals = s.to_numpy(dtype=float)
+    def _apply(self, vals: np.ndarray, beta: np.ndarray) -> np.ndarray:
+        """Compute the cycle component of *vals* using pre-fitted *beta*."""
         mask = np.isfinite(vals)
         idx = np.where(mask)[0]
         clean = vals[mask]
 
         t_idx, _, X = self._lagged_design(clean)
-
         trend = np.full(len(clean), np.nan)
         trend[t_idx + self.h] = X @ beta
-        cycle = clean - trend
 
-        out = pd.Series(np.nan, index=s.index, dtype=float)
-        out.iloc[idx] = cycle
+        out = np.full(len(vals), np.nan)
+        out[idx] = clean - trend
         return out
 
 
-class HPFilterDetrend(BaseEstimator, TransformerMixin):
-    r"""Hodrick–Prescott filter for trend–cycle decomposition.
+class HPFilterDetrend(TimeSeriesTransformer):
+    r"""Hodrick–Prescott filter: split each column into a smooth trend and a cycle.
 
-    Decomposes each column into a smooth *trend* and a *cycle* (the residual)
-    by solving the penalized least-squares problem
+    Minimizes the penalized least squares
 
     .. math::
 
         \min_{\tau} \sum_t (y_t - \tau_t)^2
-        + \lambda \sum_t \big[(\tau_{t+1} - \tau_t) - (\tau_t - \tau_{t-1})\big]^2,
-
-    where :math:`\lambda` penalizes curvature of the trend. :meth:`transform`
-    returns the cycle :math:`y_t - \tau_t`; :meth:`inverse_transform` adds the
-    trend stored during :meth:`fit` back to recover levels.
+        + \lambda \sum_t \big[(\tau_{t+1} - \tau_t) - (\tau_t - \tau_{t-1})\big]^2.
 
     Parameters
     ----------
     lamb : float, optional
-        Smoothing parameter :math:`\lambda`. Larger values yield a smoother
-        trend. Common choices are 1600 for quarterly data, 129600 for monthly
-        data, and 6.25 for annual data. Default 1600.
+        Smoothing :math:`\lambda` (larger = smoother). Typical: 1600 quarterly, 129600
+        monthly, 6.25 annual. Default 1600.
     store_trend : bool, optional
-        Whether to store the fitted trend. Required for
-        :meth:`inverse_transform`. Default True.
-
-    Notes
-    -----
-    :meth:`inverse_transform` can only recover levels when ``store_trend`` is
-    ``True`` and the index matches the data used in :meth:`fit`.
+        Store the fitted trend; required for :meth:`inverse_transform`. Default True.
+    date_column : str, optional
+        Time axis, auto-detected when ``None``. Default None.
     """
 
-    def __init__(self, lamb: float = 1600.0, store_trend: bool = True) -> None:
+    def __init__(
+        self, lamb: float = 1600.0, store_trend: bool = True, date_column: str | None = None
+    ) -> None:
         self.lamb = lamb
         self.store_trend = store_trend
+        self.date_column = date_column
 
-    def fit(self, X, y=None):
+    def _fit_values(self, values: np.ndarray, dates: np.ndarray) -> None:
         if self.lamb <= 0:
             raise ValueError(f"lamb must be positive, got {self.lamb}.")
-        X = to_dataframe(X)
-        self.columns_ = X.columns
-        self.trends_: dict[str, pd.Series] = {}
-        for col in X.columns:
-            trend = self._trend(X[col].astype(float))
-            if self.store_trend:
-                self.trends_[col] = trend
-        return self
+        if self.store_trend:
+            trends = [self._trend(values[:, column]) for column in range(values.shape[1])]
+            self.trend_values_ = np.column_stack(trends)
+            self.trend_dates_ = dates
 
-    def transform(self, X, y=None):
-        check_is_fitted(self)
-        X = to_dataframe(X)
-        out = pd.DataFrame(index=X.index, columns=X.columns, dtype=float)
-        for col in X.columns:
-            s = X[col].astype(float)
-            out[col] = s - self._trend(s)
-        return out
+    def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        return np.column_stack(
+            [
+                values[:, column] - self._trend(values[:, column])
+                for column in range(values.shape[1])
+            ]
+        )
 
-    def inverse_transform(self, X, y=None):
-        check_is_fitted(self)
+    def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
         if not self.store_trend:
             raise ValueError("inverse_transform requires store_trend=True.")
-        X = to_dataframe(X)
-        out = pd.DataFrame(index=X.index, columns=X.columns, dtype=float)
-        for col in X.columns:
-            trend = self.trends_[col].reindex(X.index)
-            out[col] = X[col].astype(float) + trend
-        return out
+        return values + align_by_date(self.trend_dates_, self.trend_values_, dates)
 
-    def _trend(self, s: pd.Series) -> pd.Series:
-        """Solve the HP problem for the trend of *s*, leaving NaN positions untouched."""
-        vals = s.to_numpy(dtype=float)
+    def _trend(self, vals: np.ndarray) -> np.ndarray:
+        """Solve the HP problem for the trend of *vals*, leaving NaN positions untouched."""
         mask = np.isfinite(vals)
         idx = np.where(mask)[0]
         clean = vals[mask]
@@ -314,16 +258,16 @@ class HPFilterDetrend(BaseEstimator, TransformerMixin):
             raise ValueError(f"Series too short ({n} obs); HP filter needs >= 3.")
         trend = solveh_banded(self._banded_lhs(n), clean)
 
-        out = pd.Series(np.nan, index=s.index, dtype=float)
-        out.iloc[idx] = trend
+        out = np.full(len(vals), np.nan)
+        out[idx] = trend
         return out
 
     def _banded_lhs(self, n: int) -> np.ndarray:
         """Upper-banded storage of ``I + lamb * D2.T @ D2`` for :func:`solveh_banded`.
 
-        ``D2`` is the ``(n - 2, n)`` second-difference operator, so the system
-        matrix is symmetric, positive definite, and pentadiagonal; only the main
-        diagonal and the two superdiagonals are built.
+        ``D2`` is the ``(n - 2, n)`` second-difference operator, so the system matrix is
+        symmetric, positive definite, and pentadiagonal; only the main diagonal and the
+        two superdiagonals are built.
         """
         lamb = self.lamb
         i = np.arange(n)

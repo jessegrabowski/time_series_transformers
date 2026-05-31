@@ -10,15 +10,15 @@ from time_series_transformers import (
     HamiltonFilterTransformer,
     HPFilterDetrend,
     LogTransformer,
-    PandasMinMaxScaler,
-    PandasStandardScaler,
+    TimeSeriesMinMaxScaler,
+    TimeSeriesStandardScaler,
 )
 
 ALL_TRANSFORMERS = [
     LogTransformer(),
     LogTransformer(lam=0.5),
-    PandasStandardScaler(),
-    PandasMinMaxScaler(),
+    TimeSeriesStandardScaler(),
+    TimeSeriesMinMaxScaler(),
     DifferenceTransformer(),
     DifferenceTransformer(periods=4),
     DetrendTransformer(),
@@ -30,8 +30,8 @@ ALL_TRANSFORMERS = [
 ]
 
 STATEFUL_TRANSFORMERS = [
-    PandasStandardScaler(),
-    PandasMinMaxScaler(),
+    TimeSeriesStandardScaler(),
+    TimeSeriesMinMaxScaler(),
     DifferenceTransformer(),
     DetrendTransformer(),
     HamiltonFilterTransformer(),

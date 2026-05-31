@@ -1,84 +1,69 @@
 import numpy as np
 
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_is_fitted
-
-from time_series_transformers._utils import to_dataframe
+from time_series_transformers.base import TimeSeriesTransformer
 
 
-class LogTransformer(BaseEstimator, TransformerMixin):
-    """Log / signed-power (Box-Cox) transformer.
+class LogTransformer(TimeSeriesTransformer):
+    r"""Log (``lam=0``) or signed-power Box–Cox transform.
 
-    When ``lam=0`` the transform is the natural logarithm.
-    Otherwise, the signed generalized Box-Cox transform is applied::
+    .. math::
 
-        (sign(x) · |x|^lam − 1) / lam
+        \frac{\operatorname{sign}(x)\,|x|^{\lambda} - 1}{\lambda}.
 
     Parameters
     ----------
-    lam : float, default 0.0
-        Power parameter.  ``0`` → log, ``1`` → identity (shifted by −1).
+    lam : float, optional
+        Power :math:`\lambda`; ``0`` is the log, ``1`` the shifted identity. Default 0.0.
+    date_column : str, optional
+        Time axis, auto-detected when ``None``. Default None.
     """
 
-    def __init__(self, lam: float = 0.0) -> None:
+    def __init__(self, lam: float = 0.0, date_column: str | None = None) -> None:
         self.lam = lam
+        self.date_column = date_column
 
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X, y=None):
-        X = to_dataframe(X)
+    def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
         if self.lam == 0:
-            return np.log(X)
-        return (np.sign(X) * np.abs(X) ** self.lam - 1.0) / self.lam
+            return np.log(values)
+        return (np.sign(values) * np.abs(values) ** self.lam - 1.0) / self.lam
 
-    def inverse_transform(self, X, y=None):
-        X = to_dataframe(X)
+    def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
         if self.lam == 0:
-            return np.exp(X)
-        inner = self.lam * X + 1.0
+            return np.exp(values)
+        inner = self.lam * values + 1.0
         return np.sign(inner) * np.abs(inner) ** (1.0 / self.lam)
 
 
-class PandasStandardScaler(BaseEstimator, TransformerMixin):
-    """Column-wise z-score normalization preserving DataFrame structure.
+class TimeSeriesStandardScaler(TimeSeriesTransformer):
+    """Column-wise z-score normalization.
 
-    Uses the sample standard deviation (``ddof=1``, the pandas default).
-    Zero-variance columns are left unscaled.
+    Uses sample std (``ddof=1``); zero-variance columns pass through unchanged.
     """
 
-    def fit(self, X, y=None):
-        X = to_dataframe(X)
-        self.mean_ = X.mean()
-        self.std_ = X.std().replace(0, 1.0)
-        return self
+    def _fit_values(self, values: np.ndarray, dates: np.ndarray) -> None:
+        self.mean_ = np.nanmean(values, axis=0)
+        std = np.nanstd(values, axis=0, ddof=1)
+        std[std == 0.0] = 1.0
+        self.std_ = std
 
-    def transform(self, X, y=None):
-        check_is_fitted(self)
-        return (to_dataframe(X) - self.mean_) / self.std_
+    def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        return (values - self.mean_) / self.std_
 
-    def inverse_transform(self, X, y=None):
-        check_is_fitted(self)
-        return self.std_ * to_dataframe(X) + self.mean_
+    def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        return values * self.std_ + self.mean_
 
 
-class PandasMinMaxScaler(BaseEstimator, TransformerMixin):
-    """Column-wise min–max scaling to [0, 1] preserving DataFrame structure.
+class TimeSeriesMinMaxScaler(TimeSeriesTransformer):
+    """Column-wise min–max scaling to ``[0, 1]``; constant columns pass through unchanged."""
 
-    Constant columns are left unscaled.
-    """
+    def _fit_values(self, values: np.ndarray, dates: np.ndarray) -> None:
+        self.min_ = np.nanmin(values, axis=0)
+        self.max_ = np.nanmax(values, axis=0)
 
-    def fit(self, X, y=None):
-        X = to_dataframe(X)
-        self.min_ = X.min()
-        self.max_ = X.max()
-        return self
+    def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        denom = self.max_ - self.min_
+        denom[denom == 0.0] = 1.0
+        return (values - self.min_) / denom
 
-    def transform(self, X, y=None):
-        check_is_fitted(self)
-        denom = (self.max_ - self.min_).replace(0, 1.0)
-        return (to_dataframe(X) - self.min_) / denom
-
-    def inverse_transform(self, X, y=None):
-        check_is_fitted(self)
-        return (self.max_ - self.min_) * to_dataframe(X) + self.min_
+    def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
+        return (self.max_ - self.min_) * values + self.min_
