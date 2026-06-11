@@ -41,17 +41,19 @@ class DifferenceTransformer(TimeSeriesTransformer):
     def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
         p = self.periods
         out = np.full_like(values, np.nan)
-        out[p:] = values[p:] - values[:-p]
+        out[..., p:, :] = values[..., p:, :] - values[..., :-p, :]
         return out
 
     def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
         p = self.periods
         out = values.copy()
-        block = out[: min(p, out.shape[0])]
+        k = min(p, out.shape[-2])
+        block = out[..., :k, :]
         nan_mask = np.isnan(block)
-        block[nan_mask] = self.initial_values_[: block.shape[0]][nan_mask]
+        fill = np.broadcast_to(self.initial_values_[:k], block.shape)
+        block[nan_mask] = fill[nan_mask]
         for stride in range(p):
-            out[stride::p] = np.cumsum(out[stride::p], axis=0)
+            out[..., stride::p, :] = np.cumsum(out[..., stride::p, :], axis=-2)
         return out
 
 
@@ -81,10 +83,10 @@ class DetrendTransformer(TimeSeriesTransformer):
         self.params_ = np.column_stack(betas)
 
     def _transform_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
-        return values - self._feature_matrix(values.shape[0]) @ self.params_
+        return values - self._feature_matrix(values.shape[-2]) @ self.params_
 
     def _inverse_values(self, values: np.ndarray, dates: np.ndarray) -> np.ndarray:
-        return values + self._feature_matrix(values.shape[0]) @ self.params_
+        return values + self._feature_matrix(values.shape[-2]) @ self.params_
 
     def _feature_matrix(self, n_obs: int) -> np.ndarray:
         """Build the ``(n_obs, k)`` OLS design matrix for the chosen trend."""
@@ -155,6 +157,10 @@ class HamiltonFilterTransformer(TimeSeriesTransformer):
         if not self.store_trend:
             raise ValueError("inverse_transform requires store_trend=True.")
         return values + align_by_date(self.trend_dates_, self.trend_values_, dates)
+
+    def _batch_apply(self, da, feature_dim, values_hook):
+        # Per-column NaN masking and least-squares fits don't broadcast; loop per series.
+        return self._batch_via_ufunc(da, feature_dim, values_hook, vectorize=True)
 
     def _lagged_design(self, vals: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return ``(t_idx, y, X)`` for the Hamilton autoregression."""
@@ -246,6 +252,10 @@ class HPFilterDetrend(TimeSeriesTransformer):
         if not self.store_trend:
             raise ValueError("inverse_transform requires store_trend=True.")
         return values + align_by_date(self.trend_dates_, self.trend_values_, dates)
+
+    def _batch_apply(self, da, feature_dim, values_hook):
+        # Per-column banded solves don't broadcast; loop per series.
+        return self._batch_via_ufunc(da, feature_dim, values_hook, vectorize=True)
 
     def _trend(self, vals: np.ndarray) -> np.ndarray:
         """Solve the HP problem for the trend of *vals*, leaving NaN positions untouched."""
