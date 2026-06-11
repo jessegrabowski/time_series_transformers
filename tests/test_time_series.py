@@ -1,7 +1,11 @@
 import numpy as np
 import pytest
 
-from tests.testtools import assert_columns_close, extract_value_columns
+from tests.testtools import (
+    assert_batch_matches_per_series,
+    assert_columns_close,
+    extract_value_columns,
+)
 from time_series_transformers import (
     DetrendTransformer,
     DifferenceTransformer,
@@ -199,3 +203,19 @@ def test_hp_filter_nan_values_do_not_corrupt_finite_values(make_dated, rng):
     for name in recovered:
         finite = np.isfinite(original[name])
         np.testing.assert_allclose(recovered[name][finite], original[name][finite], atol=1e-8)
+
+
+@pytest.mark.parametrize("method", ["transform", "inverse_transform"])
+@pytest.mark.parametrize(
+    "make_transformer",
+    [
+        lambda: DifferenceTransformer(periods=2),
+        lambda: DetrendTransformer(trend="ct"),
+        lambda: HamiltonFilterTransformer(h=2, p=2),
+        lambda: HPFilterDetrend(lamb=1600.0),
+    ],
+    ids=["difference", "detrend", "hamilton", "hp"],
+)
+def test_batch_matches_per_series(make_transformer, method, positive_random_walk, batch_dataarray):
+    tf = make_transformer().fit(positive_random_walk)
+    assert_batch_matches_per_series(tf, batch_dataarray, method)

@@ -65,3 +65,24 @@ def random_walk(rng):
 @pytest.fixture
 def positive_random_walk(random_walk):
     return random_walk.abs() + 1.0
+
+
+@pytest.fixture
+def dates():
+    return _dates(N)
+
+
+@pytest.fixture
+def batch_dataarray(rng):
+    """Positive ``(series, date, feature)`` DataArray for batch tests.
+
+    Shares the daily axis and ``a``/``b`` features of the ``random_walk`` frames, so a
+    transformer fit on one can batch-transform it.
+    """
+    xr = pytest.importorskip("xarray")
+    data = np.abs(np.cumsum(rng.standard_normal((3, N, 2)), axis=1)) + 1.0
+    return xr.DataArray(
+        data,
+        dims=("series", "date", "feature"),
+        coords={"date": _dates(N), "feature": ["a", "b"]},
+    )

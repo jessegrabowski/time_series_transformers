@@ -2,7 +2,11 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tests.testtools import assert_columns_close, extract_value_columns
+from tests.testtools import (
+    assert_batch_matches_per_series,
+    assert_columns_close,
+    extract_value_columns,
+)
 from time_series_transformers import (
     LogTransformer,
     TimeSeriesMinMaxScaler,
@@ -75,3 +79,14 @@ def test_minmax_scaler_constant_column_passes_through(make_dated):
     data = make_dated({"const": [3.0] * 10, "vary": [float(i) for i in range(10)]})
     result = TimeSeriesMinMaxScaler().fit(data).transform(data)
     np.testing.assert_allclose(extract_value_columns(result)["const"], 0.0)
+
+
+@pytest.mark.parametrize("method", ["transform", "inverse_transform"])
+@pytest.mark.parametrize(
+    "make_transformer",
+    [lambda: LogTransformer(lam=0.5), TimeSeriesStandardScaler, TimeSeriesMinMaxScaler],
+    ids=["log", "standard", "minmax"],
+)
+def test_batch_matches_per_series(make_transformer, method, positive_random_walk, batch_dataarray):
+    tf = make_transformer().fit(positive_random_walk)
+    assert_batch_matches_per_series(tf, batch_dataarray, method)
